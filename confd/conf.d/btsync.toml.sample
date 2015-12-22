@@ -1,0 +1,10 @@
+[template]
+keys = [
+  "/"
+]
+
+src = "cluster.conf.tmpl"
+dest = "/etc/btsync/cluster.conf"
+
+reload_cmd = "killall -HUP btsync"
+

@@ -1,0 +1,80 @@
+#!/bin/bash
+
+BTSYNC_SYS_GROUP=$(getent group $BTSYNC_GID | cut -d: -f1)
+if [ -z "$BTSYNC_SYS_GROUP" ]; then
+  groupadd --force -g $BTSYNC_GID $BTSYNC_GROUP 
+else
+  BTSYNC_GROUP=$BTSYNC_SYS_GROUP
+fi
+
+BTSYNC_SYS_USER=$(getent passwd $BTSYNC_UID | cut -d: -f1)
+if [ -z "$BTSYNC_SYS_USER" ]; then
+  useradd --non-unique -u $BTSYNC_UID -g $BTSYNC_GID -d $BTSYNC_SHARED_DIR -s /bin/sh --no-create-home $BTSYNC_USER
+else
+  BTSYNC_USER=$BTSYNC_SYS_USER
+fi
+
+if [ -n "$BTSYNC_DEBUG" ]; then
+  echo "Enabling debug mode"
+  echo "$BTSYNC_DEBUG" > "$BTSYNC_STORAGE_PATH/debug.txt"
+else
+  echo "Disabling debug mode"
+  rm -f "$BTSYNC_STORAGE_PATH/debug.txt"
+fi
+
+chown -R $BTSYNC_UID:$BTSYNC_GID $BTSYNC_STORAGE_PATH
+chown -R $BTSYNC_UID:$BTSYNC_GID $BTSYNC_SHARED_DIR
+
+
+chown $BTSYNC_UID:$BTSYNC_GID `readlink --canonicalize /dev/stderr /dev/stdout`
+chmod 666 `readlink --canonicalize /dev/stderr /dev/stdout`
+
+echo "Starting btsync under user $BTSYNC_USER($BTSYNC_UID) with group $BTSYNC_GROUP($BTSYNC_GID)"
+
+if [ "$CONFD_ONETIME" == "true" ]; then
+  confd -prefix=$CONFD_PREFIX -interval=$CONFD_INTERVAL -node=http://$ETCD_HOST:$ETCD_PORT -onetime
+  btsync --nodaemon --log "$BTSYNC_LOG" --config "$BTSYNC_CONF" 
+elif [ "$SUPERVISORD_ENABLED" == "true" ]; then
+  m4 -DCONFD_PREFIX="{{${CONFD_PREFIX:-/btsync}}}" \
+     -DCONFD_INTERVAL="{{${CONFD_INTERVAL:-10}}}" \
+     -DBTSYNC_USER="{{${BTSYNC_USER:-btsync}}}" \
+     -DBTSYNC_LOG="{{${BTSYNC_LOG:-/dev/stdout}}}" \
+     -DBTSYNC_CONF="{{${BTSYNC_CONF:-/etc/btsync/cluster.conf}}}" \
+     -DETCD_HOST="{{${ETCD_HOST:-localhost}}}" \
+     -DETCD_PORT="{{${ETCD_PORT:-4001}}}" \
+      /etc/supervisor/conf.d/btsync.conf.m4 > /etc/supervisor/conf.d/btsync.conf
+  cp /etc/confd/conf.d/supervisord.toml.sample /etc/confd/conf.d/supervisord.toml
+
+  exec supervisord --configuration /etc/supervisor/supervisord.conf --nodaemon
+
+else
+  cp /etc/confd/conf.d/btsync.toml.sample /etc/confd/conf.d/btsync.toml
+  # Run confd in the background
+  (
+  # Give btsync some time to start
+  sleep 10;
+
+  # Run in perpetuity, even if crash detected
+  while true; do 
+    /sbin/start-stop-daemon \
+                    --start \
+                    --make-pidfile \
+                    --pidfile /var/run/confd.pid \
+                    --chuid 0:0 \
+                    --exec /usr/bin/confd \
+                    -- \
+                      -prefix=$CONFD_PREFIX -interval=$CONFD_INTERVAL -node=http://$ETCD_HOST:$ETCD_PORT
+    sleep 1
+  done
+  )&
+  # Then start btsync
+  /sbin/start-stop-daemon \
+                  --start \
+                  --make-pidfile \
+                  --pidfile /var/run/btsync.pid \
+                  --chuid $BTSYNC_UID:$BTSYNC_GID \
+                  --exec /usr/bin/btsync \
+                  -- \
+                    --nodaemon --log "$BTSYNC_LOG" --config "$BTSYNC_CONF"
+
+fi

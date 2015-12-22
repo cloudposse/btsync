@@ -1,0 +1,43 @@
+// DAEMON_UID=root
+// DAEMON_GID=root
+{ 
+  //"device_name": "",
+  "check_for_updates": false,
+  "listening_port": 44444,
+  "lan_encrypt_data": true,
+  "storage_path" : "{{getenv "BTSYNC_STORAGE_PATH"}}",
+  "display_new_version": false,
+  "vendor": "tuxpoldo",
+  "use_upnp": false,
+  "disk_low_priority": true,
+  "rate_limit_local_peers": false,
+  "download_limit": 0,
+  "upload_limit": 0, 
+  "sync_max_time_diff": {{getenv "BTSYNC_SYNC_MAX_TIME_DIFF"}},
+  "max_file_size_for_versioning":  {{getenv "BTSYNC_MAX_FILE_SIZE_FOR_VERSIONING"}},
+  "sync_trash_ttl": 2,
+  "folder_rescan_interval":  {{getenv "BTSYNC_FOLDER_RESCAN_INTERVAL"}},
+  "max_file_size_diff_for_patching":  {{getenv "BTSYNC_MAX_FILE_SIZE_DIFF_FOR_PATCHING"}},
+  "webui" :
+  {
+  },
+  "shared_folders" :
+  [
+    {
+    "secret": "{{getenv "BTSYNC_SHARED_SECRET"}}", // randomly generated key of 20 bytes or more
+    "dir": "{{getenv "BTSYNC_SHARED_DIR"}}",
+    "use_relay_server": false,
+    "use_dht": {{getenv "BTSYNC_USE_DHT"}},
+    "use_tracker": {{getenv "BTSYNC_USE_TRACKER"}},
+    "search_lan": {{getenv "BTSYNC_SEARCH_LAN"}},
+    "use_sync_trash": true,
+    "known_hosts": 
+      // specify hosts to attempt connection without additional search
+      [
+        //"1.2.3.4:44444",
+        {{range $index, $service := ls "/"}}{{if $index}},{{end}}"{{printf "/%s" $service | getv}}"{{end}}
+      ]
+    }
+  ]
+
+}
